@@ -53,4 +53,8 @@ public class Seat {
     public SeatStatus getStatus() {
         return status;
     }
+
+    public void confirm() {
+        this.status = SeatStatus.CONFIRMED;
+    }
 }

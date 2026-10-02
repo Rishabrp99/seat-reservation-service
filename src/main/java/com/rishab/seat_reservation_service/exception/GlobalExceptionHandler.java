@@ -18,4 +18,26 @@ public class GlobalExceptionHandler {
                 "message", exception.getMessage()
         );
     }
+
+    @ExceptionHandler(SeatTakenException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, String> handleSeatTaken(
+            SeatTakenException exception
+    ) {
+        return Map.of(
+                "error", "SEAT_TAKEN",
+                "message", exception.getMessage()
+        );
+    }
+
+    @ExceptionHandler(UserLimitExceededException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, String> handleUserLimitExceeded(
+            UserLimitExceededException exception
+    ) {
+        return Map.of(
+                "error", "PER_USER_LIMIT_EXCEEDED",
+                "message", exception.getMessage()
+        );
+    }
 }
