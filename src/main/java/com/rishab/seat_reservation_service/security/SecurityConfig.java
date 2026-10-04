@@ -2,11 +2,11 @@ package com.rishab.seat_reservation_service.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
@@ -16,25 +16,23 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableWebSecurity
 public class SecurityConfig {
 
+    /*
+     * Completely bypass Spring Security for actuator endpoints.
+     *
+     * This allows Prometheus and health probes to reach Actuator
+     * without authentication.
+     */
     @Bean
-    @Order(1)
-    public SecurityFilterChain actuatorSecurityFilterChain(
-            HttpSecurity http
-    ) throws Exception {
-
-        http
-                .securityMatcher("/actuator/**")
-                .csrf(csrf -> csrf.disable())
-                .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll()
-                );
-
-        return http.build();
+    public WebSecurityCustomizer webSecurityCustomizer() {
+        return web -> web.ignoring()
+                .requestMatchers("/actuator/**");
     }
 
+    /*
+     * Application API security.
+     */
     @Bean
-    @Order(2)
-    public SecurityFilterChain applicationSecurityFilterChain(
+    public SecurityFilterChain securityFilterChain(
             HttpSecurity http
     ) throws Exception {
 
@@ -56,6 +54,7 @@ public class SecurityConfig {
                 )
 
                 .authorizeHttpRequests(auth -> auth
+
                         .requestMatchers("/health")
                         .permitAll()
 
