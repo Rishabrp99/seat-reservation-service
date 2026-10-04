@@ -37,6 +37,23 @@ public class ReservationService {
         this.userShowBookingRepository = userShowBookingRepository;
     }
 
+    private String computeCanonicalHash(List<String> seats) {
+        List<String> sortedSeats = seats.stream().distinct().sorted().toList();
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(String.join(",", sortedSeats).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("Error computing request hash", e);
+        }
+    }
+
     @Transactional
     public ReservationResponse reserve(
             Long showId,
@@ -100,6 +117,8 @@ public class ReservationService {
         reservationRepository.save(reservation);
         userShowBooking.addSeats(requestedSeats);
 
+
+
         return new ReservationResponse(
                 reservation.getId(),
                 show.getId(),
@@ -110,5 +129,7 @@ public class ReservationService {
                 amountPaise,
                 reservation.getStatus().name()
         );
+
+
     }
 }

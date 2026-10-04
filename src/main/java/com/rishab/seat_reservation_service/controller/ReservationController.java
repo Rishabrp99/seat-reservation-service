@@ -5,6 +5,7 @@ import com.rishab.seat_reservation_service.dto.ReserveSeatRequest;
 import com.rishab.seat_reservation_service.service.ReservationService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
@@ -24,9 +25,12 @@ public class ReservationController {
     @PostMapping("/{showId}/reserve")
     public ResponseEntity<ReservationResponse> reserve(
             @PathVariable Long showId,
-            @RequestHeader("X-User-Id") String userId,
+            Authentication authentication,
             @Valid @RequestBody ReserveSeatRequest request
     ) {
+        // Extract identity directly from authenticated principal (Bearer token)
+        String userId = authentication.getName();
+
         ReservationResponse response =
                 reservationService.reserve(showId, userId, request);
 

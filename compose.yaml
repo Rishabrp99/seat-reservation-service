@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: seat-reservation-postgres
+    environment:
+      POSTGRES_DB: seat_reservation_db
+      POSTGRES_USER: seat_reservation_user
+      POSTGRES_PASSWORD: seat_reservation_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seat_reservation_user -d seat_reservation_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: seat-reservation-app
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: seat_reservation_db
+      DB_USERNAME: seat_reservation_user
+      DB_PASSWORD: seat_reservation_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
