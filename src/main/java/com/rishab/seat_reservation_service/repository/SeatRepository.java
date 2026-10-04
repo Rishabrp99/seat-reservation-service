@@ -21,7 +21,7 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
         AND s.seatCode IN :seatCodes
         ORDER BY s.seatCode
         """)
-    List<Seat> findSeatsForUpdate(
+    List<Seat> findSeats(
             @Param("showId") Long showId,
             @Param("seatCodes") List<String> seatCodes
     );

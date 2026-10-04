@@ -22,6 +22,7 @@ public class ReservationService {
     private final UserShowBookingRepository userShowBookingRepository;
     private final IdempotencyKeyRepository idempotencyKeyRepository;
 
+
     public ReservationService(
             ShowRepository showRepository,
             SeatRepository seatRepository,
@@ -72,6 +73,14 @@ public class ReservationService {
                     e
             );
         }
+    }
+    @Transactional(readOnly = true)
+    public Seat getSeatForVerification(Long showId, String seatCode) {
+        return seatRepository
+                .findSeats(showId, List.of(seatCode))
+                .stream()
+                .findFirst()
+                .orElseThrow();
     }
 
     @Transactional
@@ -200,7 +209,7 @@ public class ReservationService {
         /*
          * Lock requested seats in deterministic order.
          */
-        List<Seat> seats = seatRepository.findSeatsForUpdate(
+        List<Seat> seats = seatRepository.findSeats(
                 showId,
                 seatCodes
         );
@@ -328,5 +337,8 @@ public class ReservationService {
                 amountPaise,
                 reservation.getStatus().name()
         );
+
+
+
     }
 }

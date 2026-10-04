@@ -89,7 +89,11 @@
 			<artifactId>flyway-database-postgresql</artifactId>
 
 		</dependency>
-	</dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+        </dependency>
+    </dependencies>
 
 	<build>
 		<plugins>
