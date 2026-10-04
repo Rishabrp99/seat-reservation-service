@@ -22,6 +22,7 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**", "/health").permitAll()
+                        .requestMatchers("/shows/*/reserve").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(new BearerTokenAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);

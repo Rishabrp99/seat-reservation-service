@@ -2,17 +2,12 @@ package com.rishab.seat_reservation_service.service;
 
 import com.rishab.seat_reservation_service.dto.ReservationResponse;
 import com.rishab.seat_reservation_service.dto.ReserveSeatRequest;
-import com.rishab.seat_reservation_service.entity.Reservation;
-import com.rishab.seat_reservation_service.entity.Seat;
-import com.rishab.seat_reservation_service.entity.Show;
-import com.rishab.seat_reservation_service.entity.UserShowBooking;
+import com.rishab.seat_reservation_service.entity.*;
+import com.rishab.seat_reservation_service.exception.IdempotencyConflictException;
 import com.rishab.seat_reservation_service.exception.SeatTakenException;
 import com.rishab.seat_reservation_service.exception.ShowNotFoundException;
 import com.rishab.seat_reservation_service.exception.UserLimitExceededException;
-import com.rishab.seat_reservation_service.repository.ReservationRepository;
-import com.rishab.seat_reservation_service.repository.SeatRepository;
-import com.rishab.seat_reservation_service.repository.ShowRepository;
-import com.rishab.seat_reservation_service.repository.UserShowBookingRepository;
+import com.rishab.seat_reservation_service.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,32 +20,57 @@ public class ReservationService {
     private final SeatRepository seatRepository;
     private final ReservationRepository reservationRepository;
     private final UserShowBookingRepository userShowBookingRepository;
+    private final IdempotencyKeyRepository idempotencyKeyRepository;
 
     public ReservationService(
             ShowRepository showRepository,
             SeatRepository seatRepository,
-            ReservationRepository reservationRepository, UserShowBookingRepository userShowBookingRepository
+            ReservationRepository reservationRepository,
+            UserShowBookingRepository userShowBookingRepository,
+            IdempotencyKeyRepository idempotencyKeyRepository
     ) {
         this.showRepository = showRepository;
         this.seatRepository = seatRepository;
         this.reservationRepository = reservationRepository;
         this.userShowBookingRepository = userShowBookingRepository;
+        this.idempotencyKeyRepository = idempotencyKeyRepository;
     }
 
     private String computeCanonicalHash(List<String> seats) {
-        List<String> sortedSeats = seats.stream().distinct().sorted().toList();
+
+        List<String> sortedSeats = seats.stream()
+                .distinct()
+                .sorted()
+                .toList();
+
         try {
-            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(String.join(",", sortedSeats).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            java.security.MessageDigest digest =
+                    java.security.MessageDigest.getInstance("SHA-256");
+
+            byte[] hash = digest.digest(
+                    String.join(",", sortedSeats)
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+            );
+
             StringBuilder hexString = new StringBuilder();
+
             for (byte b : hash) {
                 String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
+
+                if (hex.length() == 1) {
+                    hexString.append('0');
+                }
+
                 hexString.append(hex);
             }
+
             return hexString.toString();
+
         } catch (Exception e) {
-            throw new RuntimeException("Error computing request hash", e);
+            throw new RuntimeException(
+                    "Error computing request hash",
+                    e
+            );
         }
     }
 
@@ -58,8 +78,116 @@ public class ReservationService {
     public ReservationResponse reserve(
             Long showId,
             String userId,
+            String idempotencyKey,
             ReserveSeatRequest request
     ) {
+
+        /*
+         * STEP 1
+         * Validate Idempotency-Key.
+         */
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Idempotency-Key header is required"
+            );
+        }
+
+        /*
+         * STEP 2
+         * Create a canonical representation of the requested seats.
+         */
+        List<String> requestedSeats = request.seats()
+                .stream()
+                .sorted()
+                .toList();
+
+        String requestHash = computeCanonicalHash(requestedSeats);
+
+        /*
+         * STEP 3
+         * Atomically claim the idempotency key.
+         *
+         * inserted == 1
+         *      -> first request using this key
+         *
+         * inserted == 0
+         *      -> key already exists
+         */
+        int inserted = idempotencyKeyRepository.insertIfAbsent(
+                userId,
+                showId,
+                idempotencyKey,
+                requestHash
+        );
+
+        /*
+         * STEP 4
+         * Idempotency replay.
+         */
+        if (inserted == 0) {
+
+            IdempotencyKey existing =
+                    idempotencyKeyRepository
+                            .findByUserIdAndIdempotencyKey(
+                                    userId,
+                                    idempotencyKey
+                            )
+                            .orElseThrow(() ->
+                                    new IllegalStateException(
+                                            "Idempotency record could not be loaded"
+                                    )
+                            );
+
+            /*
+             * Same idempotency key but different request.
+             */
+            if (!existing.getRequestHash().equals(requestHash)) {
+
+                throw new IdempotencyConflictException(
+                        "Idempotency-Key was already used with a different request"
+                );
+            }
+
+            /*
+             * The original request should have stored
+             * its reservation ID before committing.
+             */
+            if (existing.getReservationId() == null) {
+
+                throw new IllegalStateException(
+                        "Idempotency record has no reservation"
+                );
+            }
+
+            /*
+             * Return the original reservation.
+             */
+            Reservation existingReservation =
+                    reservationRepository
+                            .findById(existing.getReservationId())
+                            .orElseThrow(() ->
+                                    new IllegalStateException(
+                                            "Original reservation could not be loaded"
+                                    )
+                            );
+
+            return new ReservationResponse(
+                    existingReservation.getId(),
+                    existingReservation.getShow().getId(),
+                    existingReservation.getUserId(),
+                    existingReservation.getSeats()
+                            .stream()
+                            .map(Seat::getSeatCode)
+                            .toList(),
+                    existingReservation.getAmountPaise(),
+                    existingReservation.getStatus().name()
+            );
+        }
+
+        /*
+         * STEP 5
+         * Existing reservation flow starts here.
+         */
         Show show = showRepository.findById(showId)
                 .orElseThrow(() -> new ShowNotFoundException(showId));
 
@@ -69,43 +197,80 @@ public class ReservationService {
                 .sorted()
                 .toList();
 
+        /*
+         * Lock requested seats in deterministic order.
+         */
         List<Seat> seats = seatRepository.findSeatsForUpdate(
                 showId,
                 seatCodes
         );
 
         if (seats.size() != seatCodes.size()) {
-            throw new IllegalArgumentException("One or more seats do not exist");
+            throw new IllegalArgumentException(
+                    "One or more seats do not exist"
+            );
         }
 
+        /*
+         * Check whether any requested seat is already taken.
+         */
         boolean anyTaken = seats.stream()
-                .anyMatch(seat -> seat.getStatus() != com.rishab.seat_reservation_service.entity.SeatStatus.AVAILABLE);
+                .anyMatch(seat ->
+                        seat.getStatus() != SeatStatus.AVAILABLE
+                );
 
         if (anyTaken) {
-                throw new SeatTakenException("One or more seats are already taken");
-            }
+            throw new SeatTakenException(
+                    "One or more seats are already taken"
+            );
+        }
 
+        /*
+         * Create the user/show booking row if it doesn't exist.
+         */
+        userShowBookingRepository.createIfAbsent(
+                showId,
+                userId
+        );
 
-        userShowBookingRepository.createIfAbsent(showId, userId);
-
+        /*
+         * Lock the user/show booking row.
+         */
         UserShowBooking userShowBooking =
-                userShowBookingRepository.findForUpdate(showId, userId)
+                userShowBookingRepository.findForUpdate(
+                                showId,
+                                userId
+                        )
                         .orElseThrow(() ->
                                 new IllegalStateException(
                                         "User booking state could not be loaded"
                                 )
                         );
 
-        int requestedSeats = seats.size();
-        if (userShowBooking.getBookingCount() + requestedSeats
+        int requestedSeatCount = seats.size();
+
+        /*
+         * Enforce per-user booking limit.
+         */
+        if (userShowBooking.getBookingCount()
+                + requestedSeatCount
                 > show.getPerUserLimit()) {
 
             throw new UserLimitExceededException(
-                    "User booking limit is " + show.getPerUserLimit()
+                    "User booking limit is "
+                            + show.getPerUserLimit()
             );
         }
-        long amountPaise = show.getPricePaise() * seats.size();
 
+        /*
+         * Calculate amount using integer paise.
+         */
+        long amountPaise =
+                show.getPricePaise() * seats.size();
+
+        /*
+         * Create reservation.
+         */
         Reservation reservation = new Reservation(
                 show,
                 userId,
@@ -113,12 +278,46 @@ public class ReservationService {
                 seats
         );
 
+        /*
+         * Confirm seats.
+         */
         seats.forEach(Seat::confirm);
+
+        /*
+         * Persist reservation.
+         */
         reservationRepository.save(reservation);
-        userShowBooking.addSeats(requestedSeats);
 
+        /*
+         * Associate the idempotency key with the
+         * newly created reservation.
+         */
+        IdempotencyKey idempotencyRecord =
+                idempotencyKeyRepository
+                        .findByUserIdAndIdempotencyKey(
+                                userId,
+                                idempotencyKey
+                        )
+                        .orElseThrow(() ->
+                                new IllegalStateException(
+                                        "Idempotency record could not be loaded"
+                                )
+                        );
 
+        idempotencyRecord.setReservationId(
+                reservation.getId()
+        );
 
+        /*
+         * Update user's booking count.
+         */
+        userShowBooking.addSeats(
+                requestedSeatCount
+        );
+
+        /*
+         * Return confirmed reservation.
+         */
         return new ReservationResponse(
                 reservation.getId(),
                 show.getId(),
@@ -129,7 +328,5 @@ public class ReservationService {
                 amountPaise,
                 reservation.getStatus().name()
         );
-
-
     }
 }

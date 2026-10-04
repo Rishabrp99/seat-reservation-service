@@ -26,13 +26,19 @@ public class ReservationController {
     public ResponseEntity<ReservationResponse> reserve(
             @PathVariable Long showId,
             Authentication authentication,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody ReserveSeatRequest request
     ) {
         // Extract identity directly from authenticated principal (Bearer token)
         String userId = authentication.getName();
 
         ReservationResponse response =
-                reservationService.reserve(showId, userId, request);
+                reservationService.reserve(
+                        showId,
+                        userId,
+                        idempotencyKey,
+                        request
+                );
 
         return ResponseEntity
                 .created(

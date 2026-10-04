@@ -19,6 +19,8 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
 
         String authHeader = request.getHeader("Authorization");
+        System.out.println("AUTH DEBUG: " + request.getMethod() + " " + request.getRequestURI()
+                + " | Authorization=" + authHeader);
 
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7).trim();
@@ -30,9 +32,18 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                         userId, null, Collections.emptyList());
                 SecurityContextHolder.getContext().setAuthentication(auth);
+                System.out.println(
+                        "AUTH SET: " +
+                                SecurityContextHolder.getContext().getAuthentication()
+                );
             }
         }
 
         filterChain.doFilter(request, response);
+
+        System.out.println(
+                "AUTH AFTER CHAIN: " +
+                        SecurityContextHolder.getContext().getAuthentication()
+        );
     }
 }
