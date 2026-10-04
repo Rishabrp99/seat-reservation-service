@@ -75,14 +75,7 @@ public class ReservationService {
         }
     }
 
-    @Transactional(readOnly = true)
-    public Seat getSeatForVerification(Long showId, String seatCode) {
-        return seatRepository
-                .findSeats(showId, List.of(seatCode))
-                .stream()
-                .findFirst()
-                .orElseThrow();
-    }
+
 
     @Transactional
     public void cancel(Long reservationId, String userId) {
@@ -102,23 +95,40 @@ public class ReservationService {
             return;
         }
 
+        Long showId = reservation.getShow().getId();
+
+        List<String> seatCodes = reservation.getSeats()
+                .stream()
+                .map(Seat::getSeatCode)
+                .sorted()
+                .toList();
+
+        List<Seat> seats =
+                seatRepository.findSeats(showId, seatCodes);
+
+        if (seats.size() != seatCodes.size()) {
+            throw new IllegalStateException(
+                    "Reservation seats could not be loaded"
+            );
+        }
+
+        seats.forEach(Seat::release);
+
         reservation.setStatus(ReservationStatus.CANCELLED);
 
-        reservation.getSeats()
-                .forEach(Seat::release);
-
         UserShowBooking booking =
-                userShowBookingRepository
-                        .findForUpdate(
-                                reservation.getShow().getId(),
-                                userId
-                        )
+                userShowBookingRepository.findForUpdate(showId, userId)
                         .orElseThrow(() ->
                                 new IllegalStateException(
                                         "User booking state not found"
                                 ));
 
-        booking.removeSeats(reservation.getSeats().size());
+        booking.removeSeats(seats.size());
+
+        // Explicit persistence
+        seatRepository.saveAll(seats);
+        reservationRepository.save(reservation);
+        userShowBookingRepository.save(booking);
     }
 
     @Transactional

@@ -1,6 +1,7 @@
 package com.rishab.seat_reservation_service.repository;
 
 import com.rishab.seat_reservation_service.entity.Seat;
+import com.rishab.seat_reservation_service.entity.SeatStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -12,7 +13,7 @@ import java.util.List;
 public interface SeatRepository extends JpaRepository<Seat, Long> {
 
     List<Seat> findByShowIdOrderBySeatCode(Long showId);
-
+    long countByStatus(SeatStatus status);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
         SELECT s
