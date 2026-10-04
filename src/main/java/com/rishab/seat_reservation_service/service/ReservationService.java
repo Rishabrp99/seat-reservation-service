@@ -3,11 +3,9 @@ package com.rishab.seat_reservation_service.service;
 import com.rishab.seat_reservation_service.dto.ReservationResponse;
 import com.rishab.seat_reservation_service.dto.ReserveSeatRequest;
 import com.rishab.seat_reservation_service.entity.*;
-import com.rishab.seat_reservation_service.exception.IdempotencyConflictException;
-import com.rishab.seat_reservation_service.exception.SeatTakenException;
-import com.rishab.seat_reservation_service.exception.ShowNotFoundException;
-import com.rishab.seat_reservation_service.exception.UserLimitExceededException;
+import com.rishab.seat_reservation_service.exception.*;
 import com.rishab.seat_reservation_service.repository.*;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,20 +19,22 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final UserShowBookingRepository userShowBookingRepository;
     private final IdempotencyKeyRepository idempotencyKeyRepository;
-
+    private final MeterRegistry meterRegistry;
 
     public ReservationService(
             ShowRepository showRepository,
             SeatRepository seatRepository,
             ReservationRepository reservationRepository,
             UserShowBookingRepository userShowBookingRepository,
-            IdempotencyKeyRepository idempotencyKeyRepository
+            IdempotencyKeyRepository idempotencyKeyRepository,
+            MeterRegistry meterRegistry
     ) {
         this.showRepository = showRepository;
         this.seatRepository = seatRepository;
         this.reservationRepository = reservationRepository;
         this.userShowBookingRepository = userShowBookingRepository;
         this.idempotencyKeyRepository = idempotencyKeyRepository;
+        this.meterRegistry = meterRegistry;
     }
 
     private String computeCanonicalHash(List<String> seats) {
@@ -74,6 +74,7 @@ public class ReservationService {
             );
         }
     }
+
     @Transactional(readOnly = true)
     public Seat getSeatForVerification(Long showId, String seatCode) {
         return seatRepository
@@ -81,6 +82,43 @@ public class ReservationService {
                 .stream()
                 .findFirst()
                 .orElseThrow();
+    }
+
+    @Transactional
+    public void cancel(Long reservationId, String userId) {
+
+        Reservation reservation =
+                reservationRepository.findForUpdate(reservationId)
+                        .orElseThrow(() ->
+                                new ReservationNotFoundException(reservationId));
+
+        if (!reservation.getUserId().equals(userId)) {
+            throw new ReservationCancellationException(
+                    "You can only cancel your own reservation"
+            );
+        }
+
+        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
+            return;
+        }
+
+        reservation.setStatus(ReservationStatus.CANCELLED);
+
+        reservation.getSeats()
+                .forEach(Seat::release);
+
+        UserShowBooking booking =
+                userShowBookingRepository
+                        .findForUpdate(
+                                reservation.getShow().getId(),
+                                userId
+                        )
+                        .orElseThrow(() ->
+                                new IllegalStateException(
+                                        "User booking state not found"
+                                ));
+
+        booking.removeSeats(reservation.getSeats().size());
     }
 
     @Transactional
@@ -168,6 +206,11 @@ public class ReservationService {
                 );
             }
 
+            meterRegistry.counter(
+                    "reservations.declined",
+                    "reason", "idempotent_replay"
+            ).increment();
+
             /*
              * Return the original reservation.
              */
@@ -229,6 +272,12 @@ public class ReservationService {
                 );
 
         if (anyTaken) {
+
+            meterRegistry.counter(
+                    "reservations.declined",
+                    "reason", "seat_taken"
+            ).increment();
+
             throw new SeatTakenException(
                     "One or more seats are already taken"
             );
@@ -265,6 +314,11 @@ public class ReservationService {
                 + requestedSeatCount
                 > show.getPerUserLimit()) {
 
+            meterRegistry.counter(
+                    "reservations.declined",
+                    "reason", "per_user_limit"
+            ).increment();
+
             throw new UserLimitExceededException(
                     "User booking limit is "
                             + show.getPerUserLimit()
@@ -296,6 +350,10 @@ public class ReservationService {
          * Persist reservation.
          */
         reservationRepository.save(reservation);
+
+        meterRegistry.counter(
+                "reservations.confirmed"
+        ).increment();
 
         /*
          * Associate the idempotency key with the
@@ -337,8 +395,5 @@ public class ReservationService {
                 amountPaise,
                 reservation.getStatus().name()
         );
-
-
-
     }
 }

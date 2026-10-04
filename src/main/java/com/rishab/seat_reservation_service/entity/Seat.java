@@ -37,7 +37,9 @@ public class Seat {
         this.seatCode = seatCode;
         this.status = SeatStatus.AVAILABLE;
     }
-
+    public void release() {
+        this.status = SeatStatus.AVAILABLE;
+    }
     public Long getId() {
         return id;
     }
@@ -57,4 +59,6 @@ public class Seat {
     public void confirm() {
         this.status = SeatStatus.CONFIRMED;
     }
+
+
 }

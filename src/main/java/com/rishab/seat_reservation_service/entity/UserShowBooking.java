@@ -37,6 +37,14 @@ public class UserShowBooking {
         this.bookingCount = 0;
     }
 
+    public void removeSeats(int count) {
+        this.bookingCount -= count;
+
+        if (this.bookingCount < 0) {
+            this.bookingCount = 0;
+        }
+    }
+
     public int getBookingCount() {
         return bookingCount;
     }

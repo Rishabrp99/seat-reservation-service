@@ -47,4 +47,26 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Map.of("error", "IDEMPOTENCY_CONFLICT", "message", ex.getMessage()));
     }
+
+    @ExceptionHandler(ReservationNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Map<String, String> handleReservationNotFound(
+            ReservationNotFoundException exception
+    ) {
+        return Map.of(
+                "error", "RESERVATION_NOT_FOUND",
+                "message", exception.getMessage()
+        );
+    }
+
+    @ExceptionHandler(ReservationCancellationException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Map<String, String> handleCancellation(
+            ReservationCancellationException exception
+    ) {
+        return Map.of(
+                "error", "CANCELLATION_NOT_ALLOWED",
+                "message", exception.getMessage()
+        );
+    }
 }

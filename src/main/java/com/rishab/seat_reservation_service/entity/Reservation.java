@@ -55,6 +55,9 @@ public class Reservation {
         this.status = ReservationStatus.CONFIRMED;
         this.createdAt = LocalDateTime.now();
     }
+    public void setStatus(ReservationStatus status) {
+        this.status = status;
+    }
 
     public Long getId() {
         return id;
